@@ -1,0 +1,7 @@
+# Normalize all text files to LF
+* text=auto eol=lf
+
+# Images are binary: no line-ending conversion or text diffs
+*.png binary
+*.jpg binary
+*.jpeg binary
