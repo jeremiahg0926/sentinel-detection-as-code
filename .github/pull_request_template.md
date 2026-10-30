@@ -1,4 +1,6 @@
 <!-- For non-detection PRs, delete this template and describe the change instead. -->
+
+Closes #<issue number>
 ## Detection: <TXXXX.XXX> – <Technique name>
 **Tactic:** <tactic> | **Severity:** <low/med/high>
 **ATT&CK:** https://attack.mitre.org/techniques/<ID>/

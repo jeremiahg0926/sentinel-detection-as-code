@@ -18,7 +18,7 @@ attacker behavior with Atomic Red Team, with evidence attached to every PR.
 
 ## Roadmap
 
-- [ ] Sprint 0: Foundations (Nov 2–8)
+- [ x ] Sprint 0: Foundations (Nov 2–8)
 - [ ] Sprint 1: Infrastructure as code (Nov 9–22)
 - [ ] Sprint 2: Rule format + CI validation (Nov 23–Dec 6)
 - [ ] Sprint 3: Go live: deploy pipeline + first attack tests (Dec 14–27)
