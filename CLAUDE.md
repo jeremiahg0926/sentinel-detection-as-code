@@ -39,6 +39,13 @@ end to end by running Atomic Red Team against an Azure lab VM, with evidence
 - Sample events: `tests/<TechniqueID>.json` (sanitized)
 - One detection per PR, using the PR template.
 
+## Issue linking
+
+- Detection PRs opened before attack testing link their issue with `Refs #N`. This links the PR without closing the issue.
+- The PR that adds attack-test evidence for a detection uses `Closes #N`, so the issue closes only once the rule is proven.
+- Tooling, infra, CI and docs PRs use `Closes #N` when they fully complete an issue.
+- When drafting a PR description, pick the keyword using these rules and say which one you chose and why.
+
 ## Repo layout
 
 ```text
