@@ -17,12 +17,38 @@
                         SHA-256 64BEC37BA849C5F2934A55D2A29E7DDFAE46A30D56F7F2908D1F8A454898797E
       - Sysmon binary : https://download.sysinternals.com/files/Sysmon.zip
                         minimum version 15.21, signer 'O=Microsoft Corporation'
+      - Modules       : Invoke-AtomicRedTeam 2.3.0, powershell-yaml 0.4.12
+                        (PSGallery, installed for AllUsers)
+      - Atomics       : redcanaryco/atomic-red-team commit
+                        a0e3f9bc69fed2fd711bd1f1aa87a40c33482fe6, archive
+                        SHA-256 2392FB6DD4E6ACEA3E9087FC6FFDE0F7C20A32E873AD191366AFC8599FCC9EA2
+
+    Steps:
+      1. Sysmon        : install or update, apply the pinned config, confirm running.
+      2. Audit policy  : enable the Success subcategories our rules need, verify.
+      3. Atomic Red Team:
+           - create C:\AtomicRedTeam and add it as a Microsoft Defender folder
+             exclusion BEFORE anything is downloaded (atomics contain payloads
+             Defender would otherwise quarantine mid-extraction);
+           - install the pinned powershell-yaml and Invoke-AtomicRedTeam modules
+             for AllUsers (the script runs as SYSTEM, tests run as the lab admin);
+           - download the pinned atomics archive, verify its hash, extract only
+             the atomics folder to C:\AtomicRedTeam\atomics, and record the
+             commit in C:\AtomicRedTeam\atomics.commit;
+           - run a read-only smoke test (Invoke-AtomicTest T1136.001
+             -ShowDetailsBrief). No atomic test is ever executed by this script.
 
     Logs to C:\DacSetup\setup.log (transcript, appended across runs).
     Exit code 0 on success, 1 on any failure.
 
 .NOTES
     Issue: #18 (lab VM setup script)
+
+    Detection note: adding the Defender exclusion is itself a detectable
+    defense-evasion action (Microsoft Defender event 5007, configuration
+    changed; ATT&CK T1562.001 Impair Defenses: Disable or Modify Tools). In this
+    lab it is expected, known-good baseline activity produced by every run of
+    this script, so expect it in the workspace and don't treat it as a test hit.
 #>
 
 Set-StrictMode -Version Latest
@@ -49,6 +75,24 @@ $SysmonZipUrl      = 'https://download.sysinternals.com/files/Sysmon.zip'
 $SysmonMinVersion  = [version]'15.21'
 $SysmonSignerOrg   = 'O=Microsoft Corporation'
 $SysmonServiceName = 'Sysmon64'
+
+# Atomic Red Team. Modules are pinned to exact versions; the atomics are pinned to
+# a commit and verified by archive hash. GitHub generates commit archives on the
+# fly, so the hash was verified stable across two downloads on 2026-11-07.
+$ArtModuleName     = 'Invoke-AtomicRedTeam'
+$ArtModuleVersion  = '2.3.0'
+$YamlModuleName    = 'powershell-yaml'
+$YamlModuleVersion = '0.4.12'
+$NuGetMinVersion   = [version]'2.8.5.201'
+
+$AtomicsCommit    = 'a0e3f9bc69fed2fd711bd1f1aa87a40c33482fe6'
+$AtomicsZipUrl    = "https://github.com/redcanaryco/atomic-red-team/archive/$AtomicsCommit.zip"
+$AtomicsZipSha256 = '2392FB6DD4E6ACEA3E9087FC6FFDE0F7C20A32E873AD191366AFC8599FCC9EA2'
+
+$ArtRoot           = 'C:\AtomicRedTeam'
+$AtomicsDir        = Join-Path $ArtRoot 'atomics'
+$AtomicsMarkerPath = Join-Path $ArtRoot 'atomics.commit'
+$ArtSmokeTestId    = 'T1136.001'
 
 # Advanced audit subcategories to enable for Success (Failure is left untouched).
 # Referenced by GUID, not name, because auditpol subcategory names are localized.
@@ -195,7 +239,10 @@ function Install-DacSysmon {
             # Use the installed exe for -c so the config is applied by the same
             # version that will parse it, not by the newer download.
             Write-Log "Sysmon: installed version $installedVersion meets minimum, re-applying config"
+            # Sysmon writes UTF-16, so its "blank" lines arrive as \0 characters:
+            # strip them before filtering (same for the two calls below).
             & $installedExe -accepteula -c $configPath |
+                ForEach-Object { $_ -replace "`0", '' } |
                 Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
                 ForEach-Object { Write-Log "  sysmon: $_" }
             if ($LASTEXITCODE -ne 0) { throw "$installedExe -c failed with exit code $LASTEXITCODE." }
@@ -206,6 +253,7 @@ function Install-DacSysmon {
             # with the installed exe so its own driver/service are removed cleanly.
             Write-Log "Sysmon: installed version $installedVersion is below minimum $SysmonMinVersion, uninstalling"
             & $installedExe -u force |
+                ForEach-Object { $_ -replace "`0", '' } |
                 Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
                 ForEach-Object { Write-Log "  sysmon: $_" }
             if ($LASTEXITCODE -ne 0) { throw "$installedExe -u force failed with exit code $LASTEXITCODE." }
@@ -215,6 +263,7 @@ function Install-DacSysmon {
     if ($needsInstall) {
         Write-Log "Sysmon: installing version $downloadedVersion from $downloadedExe"
         & $downloadedExe -accepteula -i $configPath |
+            ForEach-Object { $_ -replace "`0", '' } |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
             ForEach-Object { Write-Log "  sysmon: $_" }
         if ($LASTEXITCODE -ne 0) { throw "$downloadedExe -i failed with exit code $LASTEXITCODE." }
@@ -316,8 +365,218 @@ function Set-DacAuditPolicy {
     Write-Log 'Audit policy: done'
 }
 
+function Test-DacDefenderExclusion {
+    # True if $Path is in Defender's ExclusionPath list. Trailing backslashes are
+    # ignored so 'C:\X' and 'C:\X\' compare equal; -contains is case-insensitive.
+    param([Parameter(Mandatory)][string]$Path)
+
+    $wanted = $Path.TrimEnd('\')
+    # ExclusionPath is $null when no exclusions exist; Where-Object drops it.
+    $current = @((Get-MpPreference).ExclusionPath |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_.TrimEnd('\') })
+    return ($current -contains $wanted)
+}
+
+function Add-DacDefenderExclusion {
+    # Adds a Defender folder exclusion and proves it took effect.
+    # This is itself a detectable action (Defender event 5007, ATT&CK T1562.001);
+    # in this lab it is known-good baseline activity (see .NOTES).
+    param([Parameter(Mandatory)][string]$Path)
+
+    if ($null -eq (Get-Command -Name Get-MpPreference -ErrorAction SilentlyContinue)) {
+        Write-Log "Defender: Get-MpPreference not available, Defender not present; no exclusion needed for $Path"
+        return
+    }
+
+    if (Test-DacDefenderExclusion -Path $Path) {
+        Write-Log "Defender: $Path already excluded"
+    }
+    else {
+        Add-MpPreference -ExclusionPath $Path
+        Write-Log "Defender: exclusion added for $Path"
+    }
+
+    # Read back: Add-MpPreference can succeed silently while tamper protection or
+    # a managed policy keeps the change from applying.
+    if (-not (Test-DacDefenderExclusion -Path $Path)) {
+        throw "Defender exclusion for $Path is missing after Add-MpPreference (blocked by tamper protection or policy?)."
+    }
+}
+
+function Install-DacNuGetProvider {
+    # PowerShellGet needs the NuGet provider to reach PSGallery; if it is missing,
+    # Install-Module prompts to bootstrap it, which would hang an unattended run.
+    # -ListAvailable only lists installed providers and never triggers that prompt.
+    $nuget = @(Get-PackageProvider -ListAvailable | Where-Object {
+        $_.Name -eq 'NuGet' -and [version]([string]$_.Version) -ge $NuGetMinVersion
+    })
+    if ($nuget.Count -gt 0) {
+        Write-Log "NuGet: package provider $($nuget[0].Version) already installed"
+        return
+    }
+
+    Write-Log "NuGet: installing package provider >= $NuGetMinVersion"
+    Install-PackageProvider -Name NuGet -MinimumVersion $NuGetMinVersion -Force | Out-Null
+    Write-Log 'NuGet: package provider installed'
+}
+
+function Install-DacPinnedModule {
+    # Installs an exact module version for AllUsers. AllUsers matters: this
+    # script runs as SYSTEM, but the module is used interactively by the lab admin.
+    # -Force skips the "untrusted repository" prompt for this one call without
+    # changing PSGallery's InstallationPolicy.
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Version
+    )
+
+    # Only count a copy under the AllUsers module root: a CurrentUser copy for
+    # SYSTEM would be invisible to the lab admin.
+    $allUsersRoot = Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'
+    $findPinned = {
+        @(Get-Module -ListAvailable -Name $Name | Where-Object {
+            $_.Version -eq [version]$Version -and
+            $_.ModuleBase.StartsWith($allUsersRoot, [StringComparison]::OrdinalIgnoreCase)
+        })
+    }
+
+    # Wrap at the call site: invoking the scriptblock unrolls its @() result, so
+    # zero matches arrive as $null and .Count would throw under StrictMode.
+    if (@(& $findPinned).Count -gt 0) {
+        Write-Log "Modules: $Name $Version already installed"
+        return
+    }
+
+    Install-DacNuGetProvider
+    Write-Log "Modules: installing $Name $Version (AllUsers)"
+    Install-Module -Name $Name -RequiredVersion $Version -Scope AllUsers -Repository PSGallery -Force
+
+    if (@(& $findPinned).Count -eq 0) {
+        throw "Module $Name $Version not found under $allUsersRoot after Install-Module."
+    }
+    Write-Log "Modules: $Name $Version installed"
+}
+
+function Install-DacAtomicsFolder {
+    Write-Log "Atomics: target commit $AtomicsCommit"
+    $shortCommit = $AtomicsCommit.Substring(0, 7)
+
+    $installedCommit = ''
+    if (Test-Path -LiteralPath $AtomicsMarkerPath -PathType Leaf) {
+        # [string] cast: Get-Content -Raw returns $null for an empty file.
+        $installedCommit = ([string](Get-Content -LiteralPath $AtomicsMarkerPath -Raw)).Trim()
+    }
+
+    if ($installedCommit -ieq $AtomicsCommit -and (Test-Path -LiteralPath $AtomicsDir -PathType Container)) {
+        Write-Log "Atomics: already at $shortCommit"
+    }
+    else {
+        # Download inside the excluded folder so Defender doesn't scan the archive.
+        $zipPath = Join-Path $ArtRoot "atomic-red-team-$AtomicsCommit.zip"
+        Write-Log "Atomics: downloading $AtomicsZipUrl"
+        Invoke-WebRequest -Uri $AtomicsZipUrl -OutFile $zipPath -UseBasicParsing
+
+        $actualHash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash
+        if ($actualHash -ine $AtomicsZipSha256) {
+            Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+            throw "Atomics archive hash mismatch. Expected $AtomicsZipSha256, got $actualHash."
+        }
+        Write-Log "Atomics: archive hash verified ($actualHash)"
+
+        # Drop the marker before touching the folder: if the old marker survived an
+        # interrupted extraction, a later run could see a matching commit and skip
+        # over a half-extracted folder.
+        if (Test-Path -LiteralPath $AtomicsMarkerPath) {
+            Remove-Item -LiteralPath $AtomicsMarkerPath -Force
+        }
+        if (Test-Path -LiteralPath $AtomicsDir) {
+            Write-Log "Atomics: removing existing $AtomicsDir"
+            Remove-Item -LiteralPath $AtomicsDir -Recurse -Force
+        }
+        New-Item -Path $AtomicsDir -ItemType Directory -Force | Out-Null
+
+        # ZipFile instead of Expand-Archive: we only want the atomics/ subtree,
+        # flattened into $AtomicsDir, and it is much faster on PS 5.1.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $prefix   = "atomic-red-team-$AtomicsCommit/atomics/"
+        $rootFull = [IO.Path]::GetFullPath($AtomicsDir).TrimEnd('\') + '\'
+        $fileCount = 0
+        $archive = [IO.Compression.ZipFile]::OpenRead($zipPath)
+        try {
+            foreach ($entry in $archive.Entries) {
+                $entryName = $entry.FullName.Replace('\', '/')
+                if (-not $entryName.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+
+                $relative = $entryName.Substring($prefix.Length)
+                # Directory entries end in '/' (and have an empty Name); directories
+                # are created on demand from file paths instead.
+                if ($relative.Length -eq 0 -or $relative.EndsWith('/')) { continue }
+
+                $dest = [IO.Path]::GetFullPath([IO.Path]::Combine($AtomicsDir, $relative.Replace('/', '\')))
+                # Zip-slip guard: never write outside $AtomicsDir, even from a pinned archive.
+                if (-not $dest.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Atomics archive entry escapes the target folder: $($entry.FullName)"
+                }
+
+                [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($dest)) | Out-Null
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $dest, $true)
+                $fileCount++
+            }
+        }
+        finally {
+            $archive.Dispose()
+        }
+        Write-Log "Atomics: extracted $fileCount files to $AtomicsDir"
+
+        Remove-Item -LiteralPath $zipPath -Force
+
+        # Marker last, so any failure above makes the next run retry from scratch.
+        Set-Content -LiteralPath $AtomicsMarkerPath -Value $AtomicsCommit -Encoding Ascii -NoNewline
+        Write-Log "Atomics: now at $shortCommit (marker $AtomicsMarkerPath)"
+    }
+
+    # Sanity check on both paths: cheap, and catches a folder damaged since the last run.
+    $smokeYaml = Join-Path $AtomicsDir "$ArtSmokeTestId\$ArtSmokeTestId.yaml"
+    if (-not (Test-Path -LiteralPath $smokeYaml -PathType Leaf)) {
+        throw "Atomics sanity check failed: $smokeYaml is missing."
+    }
+    $techniqueCount = @(Get-ChildItem -LiteralPath $AtomicsDir -Directory |
+        Where-Object { $_.Name -match '^T\d{4}' }).Count
+    Write-Log "Atomics: $techniqueCount technique folders present"
+}
+
 function Install-DacAtomicRedTeam {
-    Write-Log 'TODO: Atomic Red Team (#18, session 2)'
+    Write-Log 'Atomic Red Team: starting'
+
+    # The exclusion must exist before anything is downloaded, or Defender will
+    # quarantine atomics payloads mid-extraction and leave a partial folder.
+    if (-not (Test-Path -LiteralPath $ArtRoot)) {
+        New-Item -Path $ArtRoot -ItemType Directory -Force | Out-Null
+        Write-Log "Atomic Red Team: created $ArtRoot"
+    }
+    Add-DacDefenderExclusion -Path $ArtRoot
+
+    # powershell-yaml first: Invoke-AtomicRedTeam needs it to parse the atomics.
+    Install-DacPinnedModule -Name $YamlModuleName -Version $YamlModuleVersion
+    Install-DacPinnedModule -Name $ArtModuleName -Version $ArtModuleVersion
+
+    $loaded = @(Import-Module -Name $ArtModuleName -RequiredVersion $ArtModuleVersion -PassThru) |
+        Where-Object { $_.Name -eq $ArtModuleName } |
+        Select-Object -First 1
+    if ($null -eq $loaded) {
+        throw "Import-Module $ArtModuleName $ArtModuleVersion returned no module."
+    }
+    Write-Log "Atomic Red Team: loaded $($loaded.Name) $($loaded.Version) from $($loaded.ModuleBase)"
+
+    Install-DacAtomicsFolder
+
+    # Read-only smoke test: -ShowDetailsBrief only lists the tests, it never runs
+    # one. Out-Host sends the output to the console, and so to the transcript.
+    Write-Log "Atomic Red Team: smoke test (read-only) Invoke-AtomicTest $ArtSmokeTestId -ShowDetailsBrief"
+    Invoke-AtomicTest $ArtSmokeTestId -ShowDetailsBrief -PathToAtomicsFolder $AtomicsDir | Out-Host
+
+    Write-Log 'Atomic Red Team: done'
 }
 
 # ---------------------------------------------------------------------------
