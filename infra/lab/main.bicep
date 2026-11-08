@@ -212,12 +212,41 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2024-03-11' existing = {
   scope: resourceGroup(coreResourceGroupName)
 }
 
+// ---------- Managed Run Command: runs setup.ps1 (Sysmon, audit policy, Atomic Red Team) ----------
+// The script is embedded into the template at build time by loadTextContent, so there
+// is no download URL or storage account to manage. treatFailureAsDeploymentFailure
+// makes a script failure (setup.ps1 exits 1) fail the deployment instead of passing
+// silently. No runAsUser/runAsPassword, so it runs as SYSTEM by design. setup.ps1 must
+// stay ASCII: Windows PowerShell 5.1 reads a BOM-less script as ANSI and garbles
+// anything else.
+resource setupRunCommand 'Microsoft.Compute/virtualMachines/runCommands@2025-04-01' = {
+  parent: vm
+  name: 'rc-dac-setup'
+  location: location
+  tags: tags
+  properties: {
+    source: {
+      script: loadTextContent('setup.ps1')
+    }
+    asyncExecution: false
+    treatFailureAsDeploymentFailure: true
+    timeoutInSeconds: 1800
+  }
+}
+
 // ---------- Azure Monitor Agent: ships VM events to the workspace ----------
+// Explicitly after the Run Command: the Azure Monitor Agent only subscribes to event
+// channels that exist when it starts, so Sysmon must be installed before the agent.
+// Found in #18 session 1, where Sysmon installed after the agent produced no rows
+// until a reboot.
 resource ama 'Microsoft.Compute/virtualMachines/extensions@2025-04-01' = {
   parent: vm
   name: 'AzureMonitorWindowsAgent'
   location: location
   tags: tags
+  dependsOn: [
+    setupRunCommand
+  ]
   properties: {
     publisher: 'Microsoft.Azure.Monitor'
     type: 'AzureMonitorWindowsAgent'
@@ -231,6 +260,11 @@ resource ama 'Microsoft.Compute/virtualMachines/extensions@2025-04-01' = {
 resource dcrAssociation 'Microsoft.Insights/dataCollectionRuleAssociations@2024-03-11' = {
   name: dcrAssociationName
   scope: vm
+  // Explicitly after the agent, so the association lands on an installed agent and
+  // the whole chain stays Run Command -> agent -> association.
+  dependsOn: [
+    ama
+  ]
   properties: {
     description: 'Links the lab VM to the core Windows DCR.'
     dataCollectionRuleId: dcr.id
