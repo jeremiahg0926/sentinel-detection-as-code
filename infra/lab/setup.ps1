@@ -7,7 +7,9 @@
     produces the telemetry our Sentinel detections rely on.
 
     Target: Windows Server 2022, Windows PowerShell 5.1 (the VM has no pwsh 7).
-    Designed to run unattended as SYSTEM via a managed Run Command: no prompts,
+    Runs automatically on deploy, as SYSTEM, via the managed Run Command
+    rc-dac-setup in infra/lab/main.bicep; can still be run by hand over RDP
+    from an elevated Windows PowerShell 5.1 prompt. Unattended: no prompts,
     no pauses. Idempotent: safe to re-run; each step converges to the desired
     state instead of assuming a clean machine.
 
