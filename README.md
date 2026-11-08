@@ -4,7 +4,7 @@ KQL detection rules for Microsoft Sentinel, managed as YAML and shipped through
 a CI/CD pipeline with infrastructure as code. Each rule is proven against real
 attacker behavior with Atomic Red Team, with evidence attached to every PR.
 
-**Status: Sprint 1 of 5 (in progress)**
+**Status: Sprint 2 of 5 (next). Sprint 1 completed Nov 8.**
 
 ## Planned architecture
 
@@ -19,7 +19,7 @@ attacker behavior with Atomic Red Team, with evidence attached to every PR.
 ## Roadmap
 
 - [x] Sprint 0: Foundations (Nov 2–8, completed Oct 29)
-- [ ] Sprint 1: Infrastructure as code (Nov 9–22)
+- [x] Sprint 1: Infrastructure as code (Nov 9–22, completed Nov 8): Bicep core + lab layers, self-configuring lab VM, one-command lab-up / lab-down
 - [ ] Sprint 2: Rule format + CI validation (Nov 23–Dec 6)
 - [ ] Sprint 3: Go live: deploy pipeline + first attack tests (Dec 14–27)
 - [ ] Sprint 4: Scale across ATT&CK (Dec 28–Jan 10)
