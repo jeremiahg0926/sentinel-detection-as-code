@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=../../schemas/detection-rule.schema.json
+# Example rule for schema and converter tests. Not a real detection; never deployed.
+id: 00000000-0000-0000-0000-000000000000
+name: Example rule for schema tests
+description: >-
+  Fixture used to prove the rule schema and converter accept a complete,
+  valid rule. It does not detect anything.
+severity: Informational
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - Execution
+relevantTechniques:
+  - T1059
+  - T1059.001
+query: |
+  SecurityEvent
+  | where EventID == 4688
+  | project Computer, Account, NewProcessName
+entityMappings:
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: Computer
+enabled: false
+version: 1.0.0
+suppressionEnabled: true
+suppressionDuration: 5h
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 5h
+    matchingMethod: Selected
+    groupByEntities:
+      - Host
