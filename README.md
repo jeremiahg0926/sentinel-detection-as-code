@@ -9,6 +9,7 @@ attacker behavior with Atomic Red Team, with evidence attached to every PR.
 ## Planned architecture
 
 - YAML rules → converter → ARM templates
+- Rule format: [docs/rule-format.md](docs/rule-format.md), defined by [schemas/detection-rule.schema.json](schemas/detection-rule.schema.json)
 - `validate.yml` runs on every pull request
 - `deploy.yml` deploys to Sentinel on merge via OIDC (no stored secrets)
 - Bicep in two layers: `core` (workspace, Sentinel, identity) and `lab`

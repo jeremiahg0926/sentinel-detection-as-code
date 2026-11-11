@@ -179,7 +179,7 @@
     },
     "suppressionDuration": {
       "description": "How long to suppress the rule after it fires, as a short duration such as 5m, 1h or 1d. The converter turns it into ISO 8601 for ARM properties.suppressionDuration.",
-      "$comment": "The allowed range is checked by the converter.",
+      "$comment": "The allowed range is checked by the converter. The converter defaults this to 5h when omitted; ignored while suppressionEnabled is false.",
       "type": "string",
       "pattern": "^[1-9][0-9]*[mhd]$"
     },
@@ -191,6 +191,7 @@
       "properties": {
         "createIncident": {
           "description": "Whether alerts from this rule create incidents. Maps to ARM incidentConfiguration.createIncident.",
+          "$comment": "The converter defaults this to true when omitted.",
           "type": "boolean"
         },
         "groupingConfiguration": {
@@ -203,20 +204,23 @@
           "properties": {
             "enabled": {
               "description": "Whether alert grouping is on. Maps to ARM groupingConfiguration.enabled.",
+              "$comment": "The converter defaults this to false when omitted.",
               "type": "boolean"
             },
             "reopenClosedIncident": {
               "description": "Whether a matching alert reopens a closed incident. Maps to ARM groupingConfiguration.reopenClosedIncident.",
+              "$comment": "The converter defaults this to false when omitted.",
               "type": "boolean"
             },
             "lookbackDuration": {
               "description": "Time window for grouping alerts, as a short duration such as 5m, 1h or 1d. The converter turns it into ISO 8601 for ARM groupingConfiguration.lookbackDuration.",
-              "$comment": "The allowed range is checked by the converter.",
+              "$comment": "The allowed range is checked by the converter. The converter defaults this to 5h when omitted.",
               "type": "string",
               "pattern": "^[1-9][0-9]*[mhd]$"
             },
             "matchingMethod": {
               "description": "How alerts are matched for grouping. Maps to ARM groupingConfiguration.matchingMethod.",
+              "$comment": "The converter defaults this to AllEntities when omitted.",
               "type": "string",
               "enum": ["AllEntities", "AnyAlert", "Selected"]
             },
