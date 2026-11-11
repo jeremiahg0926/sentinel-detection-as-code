@@ -1,0 +1,248 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sentinel detection rule",
+  "description": "A Microsoft Sentinel scheduled analytics rule stored as YAML. Each file converts to one Microsoft.SecurityInsights/alertRules resource with kind 'Scheduled'.",
+  "$comment": "Validates structure only. Value ranges ARM enforces (for example duration limits) and entity/identifier combinations are checked by the converter, not here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "description",
+    "severity",
+    "queryFrequency",
+    "queryPeriod",
+    "triggerOperator",
+    "triggerThreshold",
+    "tactics",
+    "relevantTechniques",
+    "query",
+    "entityMappings"
+  ],
+  "allOf": [
+    {
+      "$comment": "Suppression needs a duration when it is turned on.",
+      "if": { "properties": { "suppressionEnabled": { "const": true } }, "required": ["suppressionEnabled"] },
+      "then": { "required": ["suppressionDuration"] }
+    }
+  ],
+  "properties": {
+    "id": {
+      "description": "Stable GUID for the rule. Maps to the alert rule's ARM resource name. Never change it after creation, or Sentinel treats the rule as a new one.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "name": {
+      "description": "Human-readable rule name shown in Sentinel. Maps to ARM properties.displayName.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "What the rule detects and why it matters. Maps to ARM properties.description.",
+      "type": "string",
+      "minLength": 1
+    },
+    "severity": {
+      "description": "Alert severity. Maps to ARM properties.severity.",
+      "type": "string",
+      "enum": ["High", "Medium", "Low", "Informational"]
+    },
+    "queryFrequency": {
+      "description": "How often the query runs, as a short duration such as 5m, 1h or 1d. The converter turns it into ISO 8601 (for example PT5M) for ARM properties.queryFrequency.",
+      "$comment": "The allowed range is checked by the converter.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]*[mhd]$"
+    },
+    "queryPeriod": {
+      "description": "How far back each run looks, as a short duration such as 5m, 1h or 1d. The converter turns it into ISO 8601 for ARM properties.queryPeriod.",
+      "$comment": "The allowed range is checked by the converter.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]*[mhd]$"
+    },
+    "triggerOperator": {
+      "description": "Comparison applied to the query's result count. The converter maps gt/lt/eq/ne to GreaterThan/LessThan/Equal/NotEqual for ARM properties.triggerOperator.",
+      "type": "string",
+      "enum": ["gt", "lt", "eq", "ne"]
+    },
+    "triggerThreshold": {
+      "description": "Result count compared against triggerOperator to decide whether to fire an alert. Maps to ARM properties.triggerThreshold.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "tactics": {
+      "description": "MITRE ATT&CK tactics the rule covers, in ARM spelling (no spaces). Maps to ARM properties.tactics.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "Reconnaissance",
+          "ResourceDevelopment",
+          "InitialAccess",
+          "Execution",
+          "Persistence",
+          "PrivilegeEscalation",
+          "DefenseEvasion",
+          "CredentialAccess",
+          "Discovery",
+          "LateralMovement",
+          "Collection",
+          "Exfiltration",
+          "CommandAndControl",
+          "Impact"
+        ]
+      }
+    },
+    "relevantTechniques": {
+      "description": "MITRE ATT&CK technique and sub-technique IDs, such as T1059 or T1059.001. Feeds ARM properties.techniques and properties.subTechniques.",
+      "$comment": "The converter splits this list: parent IDs go to ARM techniques, sub-technique IDs go to subTechniques.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^T[0-9]{4}(\\.[0-9]{3})?$"
+      }
+    },
+    "query": {
+      "description": "The KQL detection query. Maps to ARM properties.query.",
+      "type": "string",
+      "minLength": 1
+    },
+    "entityMappings": {
+      "description": "Maps query output columns to Sentinel entities. Maps to ARM properties.entityMappings.",
+      "$comment": "Whether an identifier is valid for its entityType is not checked here.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "description": "One entity mapping. Maps to one element of ARM properties.entityMappings.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entityType", "fieldMappings"],
+        "properties": {
+          "entityType": {
+            "description": "Sentinel entity type. Maps to ARM entityMappings[].entityType.",
+            "type": "string",
+            "enum": [
+              "Account",
+              "Host",
+              "IP",
+              "Process",
+              "File",
+              "FileHash",
+              "RegistryKey",
+              "RegistryValue",
+              "URL",
+              "DNS"
+            ]
+          },
+          "fieldMappings": {
+            "description": "Identifier-to-column pairs for this entity. Maps to ARM entityMappings[].fieldMappings.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["identifier", "columnName"],
+              "properties": {
+                "identifier": {
+                  "description": "Entity identifier, such as FullName or HostName. Maps to ARM fieldMappings[].identifier.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "columnName": {
+                  "description": "Query output column that supplies the identifier's value. Maps to ARM fieldMappings[].columnName.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "enabled": {
+      "description": "Whether the rule is active after deployment. Maps to ARM properties.enabled.",
+      "$comment": "The converter defaults this to true when omitted.",
+      "type": "boolean"
+    },
+    "version": {
+      "description": "Semantic version of the rule (MAJOR.MINOR.PATCH). Project metadata only; not sent to ARM.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "suppressionEnabled": {
+      "description": "Whether to stop the rule running for suppressionDuration after it fires. Maps to ARM properties.suppressionEnabled.",
+      "$comment": "The converter defaults this to false when omitted.",
+      "type": "boolean"
+    },
+    "suppressionDuration": {
+      "description": "How long to suppress the rule after it fires, as a short duration such as 5m, 1h or 1d. The converter turns it into ISO 8601 for ARM properties.suppressionDuration.",
+      "$comment": "The allowed range is checked by the converter.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]*[mhd]$"
+    },
+    "incidentConfiguration": {
+      "description": "How alerts from this rule become incidents. Maps to ARM properties.incidentConfiguration.",
+      "$comment": "The converter supplies defaults when this or any of its fields are omitted.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "createIncident": {
+          "description": "Whether alerts from this rule create incidents. Maps to ARM incidentConfiguration.createIncident.",
+          "type": "boolean"
+        },
+        "groupingConfiguration": {
+          "description": "How related alerts are grouped into one incident. Maps to ARM incidentConfiguration.groupingConfiguration.",
+          "type": "object",
+          "additionalProperties": false,
+          "$comment": "Selected grouping needs at least one entity in groupByEntities.",
+          "if": { "properties": { "matchingMethod": { "const": "Selected" } }, "required": ["matchingMethod"] },
+          "then": { "required": ["groupByEntities"], "properties": { "groupByEntities": { "minItems": 1 } } },
+          "properties": {
+            "enabled": {
+              "description": "Whether alert grouping is on. Maps to ARM groupingConfiguration.enabled.",
+              "type": "boolean"
+            },
+            "reopenClosedIncident": {
+              "description": "Whether a matching alert reopens a closed incident. Maps to ARM groupingConfiguration.reopenClosedIncident.",
+              "type": "boolean"
+            },
+            "lookbackDuration": {
+              "description": "Time window for grouping alerts, as a short duration such as 5m, 1h or 1d. The converter turns it into ISO 8601 for ARM groupingConfiguration.lookbackDuration.",
+              "$comment": "The allowed range is checked by the converter.",
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[mhd]$"
+            },
+            "matchingMethod": {
+              "description": "How alerts are matched for grouping. Maps to ARM groupingConfiguration.matchingMethod.",
+              "type": "string",
+              "enum": ["AllEntities", "AnyAlert", "Selected"]
+            },
+            "groupByEntities": {
+              "description": "Entity types to group by when matchingMethod is Selected. Maps to ARM groupingConfiguration.groupByEntities.",
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Account",
+                  "Host",
+                  "IP",
+                  "Process",
+                  "File",
+                  "FileHash",
+                  "RegistryKey",
+                  "RegistryValue",
+                  "URL",
+                  "DNS"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
